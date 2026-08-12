@@ -12,13 +12,15 @@ const paymentSchema = new mongoose.Schema(
     tokenDeducted: { type: Number, default: 0 }, // paise deducted from full amount
     status: {
       type: String,
-      enum: ['created', 'paid', 'confirmed', 'failed'],
+      enum: ['created', 'paid', 'confirmed', 'refunded', 'failed'],
       default: 'created',
       index: true,
     },
     razorpayOrderId: { type: String, default: '', index: true },
     razorpayPaymentId: { type: String, default: '' },
     razorpaySignature: { type: String, default: '' },
+    refundId: { type: String, default: '' },
+    refundedAt: { type: Date, default: null },
     commissionPercent: { type: Number, default: 0 },
     commissionPaise: { type: Number, default: 0 },
     ownerAmountPaise: { type: Number, default: 0 },

@@ -27,6 +27,10 @@ const errorHandler = (err, req, res, next) => {
     const field = Object.keys(err.keyValue)[0];
     message = `Duplicate value for ${field}`;
   }
+  if (err.error && typeof err.error === 'object' && err.error.description) {
+    statusCode = err.statusCode || 400;
+    message = err.error.description;
+  }
   if (err.name === 'MulterError') {
     statusCode = 400;
     message = `Upload error: ${err.message}`;

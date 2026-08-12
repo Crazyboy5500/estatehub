@@ -1,7 +1,7 @@
 import api from './api';
 
 export type PaymentType = 'token' | 'full';
-export type PaymentStatus = 'created' | 'paid' | 'confirmed' | 'failed';
+export type PaymentStatus = 'created' | 'paid' | 'confirmed' | 'refunded' | 'failed';
 
 export interface PaymentPayload {
   orderId?: string;
@@ -35,6 +35,7 @@ export const paymentService = {
     api.post('/payments/create-order', { propertyId, visitId, type }),
   verify: (payload: PaymentPayload) => api.post('/payments/verify', payload),
   confirm: (id: string) => api.post(`/payments/${id}/confirm`),
+  refund: (id: string) => api.post(`/payments/${id}/refund`),
   getMy: () => api.get('/payments/my'),
   getOwner: () => api.get('/payments/owner'),
   getAll: () => api.get('/payments/all'),

@@ -78,6 +78,17 @@ export default function OwnerDashboard() {
     }
   };
 
+  const handleRefund = async (payment: Payment): Promise<void> => {
+    if (!window.confirm(t('dash.refundConfirmMsg', { title: payment.propertyId?.title || '', amount: formatPrice(payment.amount / 100) }))) return;
+    try {
+      await paymentService.refund(payment._id);
+      notify(t('notify.refundSuccess'));
+      await load();
+    } catch (error) {
+      catchError(error, t('notify.refundFailed'));
+    }
+  };
+
   const pendingFull = payments.filter((p) => p.type === 'full' && p.status === 'paid');
   const totalPayout = payments.reduce((sum, p) => sum + (p.ownerAmountPaise || 0), 0);
 
@@ -189,6 +200,7 @@ export default function OwnerDashboard() {
           <div className="space-y-3">
             {payments.map((p) => {
               const isPending = p.type === 'full' && p.status === 'paid';
+              const isRefundable = p.type === 'token' && p.status === 'paid';
               return (
                 <div key={p._id} className="card flex flex-wrap items-center gap-4 p-4">
                   <SafeImg src={p.propertyId?.images?.[0]} alt="" className="h-14 w-20 rounded-lg object-cover" />
@@ -208,6 +220,7 @@ export default function OwnerDashboard() {
                     </span>
                   </div>
                   {isPending && <button onClick={() => void handleConfirm(p)} className="btn-primary">{t('dash.confirmPayment')}</button>}
+                  {isRefundable && <button onClick={() => void handleRefund(p)} className="btn-secondary">{t('dash.refundToken')}</button>}
                 </div>
               );
             })}

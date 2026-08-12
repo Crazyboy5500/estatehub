@@ -14,6 +14,8 @@ export default defineConfig({
       MONGO_URI: 'mongodb://127.0.0.1:27017/estatehub_test',
       PORT: '5100',
       JWT_SECRET: 'test-secret',
+      RAZORPAY_KEY_ID: 'rzp_test_dummykey',
+      RAZORPAY_KEY_SECRET: 'dummysecret',
     },
   },
 });

@@ -243,6 +243,68 @@ const confirmPayment = async (req, res, next) => {
   }
 };
 
+const isRefundCreditError = (err) =>
+  err && err.statusCode === 400 && err.error && err.error.code === 'BAD_REQUEST_ERROR' && err.error.description === 'invalid request sent';
+
+const refundWithFallback = async (paymentId, amountPaise) => {
+  try {
+    return await razorpay.payments.refund(paymentId, { amount: amountPaise, speed: 'normal' });
+  } catch (err) {
+    if (!isRefundCreditError(err) || amountPaise < 200) throw err;
+    const chunkA = await refundWithFallback(paymentId, Math.floor(amountPaise / 2));
+    const chunkB = await refundWithFallback(paymentId, amountPaise - Math.floor(amountPaise / 2));
+    return chunkB;
+  }
+};
+
+const refundPayment = async (req, res, next) => {
+  try {
+    if (!razorpay) throw new AppError('Payments are not configured (RAZORPAY_KEY_ID missing)', 503);
+    const { id } = req.params;
+    const payment = await Payment.findById(id);
+    if (!payment) throw new AppError('Payment not found', 404);
+
+    const Property = require('../models/Property');
+    const property = await Property.findById(payment.propertyId);
+    if (!property) throw new AppError('Property not found', 404);
+
+    const isOwner = property.ownerId.toString() === req.user._id.toString();
+    const isAdmin = req.user.role === 'admin';
+    if (!isOwner && !isAdmin) {
+      throw new AppError('Only the property owner or admin can refund payments', 403);
+    }
+
+    if (payment.type !== 'token') {
+      throw new AppError('Only token payments can be refunded', 400);
+    }
+    if (payment.status !== 'paid') {
+      throw new AppError('Only paid token payments can be refunded', 400);
+    }
+    if (!payment.razorpayPaymentId) {
+      throw new AppError('Payment is missing a Razorpay payment ID', 400);
+    }
+
+    const refund = await refundWithFallback(payment.razorpayPaymentId, payment.amount);
+
+    payment.status = 'refunded';
+    payment.refundId = refund.id;
+    payment.refundedAt = new Date();
+    await payment.save();
+
+    await notifyUser({
+      io: req.app.get('io'),
+      userId: payment.buyerId,
+      type: 'system',
+      message: `💸 Your ₹${(payment.amount / 100).toLocaleString('en-IN')} token payment for "${property.title}" has been refunded.`,
+      link: '/dashboard/buyer',
+    });
+
+    res.json({ success: true, data: payment, refund: { id: refund.id, status: refund.status } });
+  } catch (error) {
+    next(error);
+  }
+};
+
 const getMyPayments = async (req, res, next) => {
   try {
     const payments = await Payment.find({ buyerId: req.user._id })
@@ -343,6 +405,7 @@ module.exports = {
   createOrder,
   verifyPayment,
   confirmPayment,
+  refundPayment,
   getMyPayments,
   getOwnerPayments,
   getAllPayments,
