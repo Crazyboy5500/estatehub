@@ -98,11 +98,18 @@ export default function MessagesPage() {
     }
   };
 
-  const otherParticipant = (c: Conversation | undefined): { name?: string } | undefined => {
-    const other = c?.otherUser ||
-      c?.participants?.find((p) => typeof p !== 'string' && p._id !== user?._id);
-    if (other && typeof other === 'object') return other;
+  const otherParticipant = (c: Conversation | undefined): { name?: string; role?: string } | undefined => {
+    const other =
+      c?.otherUser || c?.participants?.find((p) => typeof p !== 'string' && p._id !== user?._id);
+    if (other && typeof other === 'object') return other as { name?: string; role?: string };
     return undefined;
+  };
+
+  const roleLabel = (role?: string): string => {
+    if (!role) return '';
+    if (role === 'owner') return t('messages.roleOwner');
+    if (role === 'buyer') return t('messages.roleBuyer');
+    return t('messages.roleAdmin');
   };
 
   if (loading) return <Spinner />;
@@ -126,7 +133,10 @@ export default function MessagesPage() {
                     {(other?.name?.[0] as string) || (c.otherUser?.name?.[0] as string) || '?'}
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">{other?.name || c.otherUser?.name}</p>
+                    <p className="truncate text-sm font-semibold">
+                      {other?.name || c.otherUser?.name}
+                      <span className="ml-1.5 text-[10px] font-medium text-gray-400">{roleLabel(other?.role || c.otherUser?.role)}</span>
+                    </p>
                     <p className="truncate text-xs text-gray-500">{c.property?.title || t('messages.generalChat')}</p>
                     {c.lastMessage && <p className="mt-0.5 truncate text-xs text-gray-400">{c.lastMessage}</p>}
                   </div>
@@ -150,7 +160,10 @@ export default function MessagesPage() {
                 {otherParticipant(conversations.find((c) => c._id === active))?.name?.[0] || '?'}
               </div>
               <div>
-                <p className="font-semibold">{otherParticipant(conversations.find((c) => c._id === active))?.name}</p>
+                <p className="font-semibold">
+                  {otherParticipant(conversations.find((c) => c._id === active))?.name}
+                  <span className="ml-2 text-[11px] font-medium text-gray-400">{roleLabel(otherParticipant(conversations.find((c) => c._id === active))?.role)}</span>
+                </p>
                 <p className="text-xs text-gray-500">{t('messages.onlineVia')}</p>
               </div>
             </div>
@@ -160,6 +173,17 @@ export default function MessagesPage() {
                 <Spinner />
               ) : (
                 messages.map((m) => {
+                  if (m.isSystem) {
+                    return (
+                      <div key={m._id} className="flex justify-center">
+                        <div className="max-w-[85%] rounded-xl bg-gray-200/70 px-4 py-2 text-center text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                          <p className="mb-0.5 font-semibold text-gray-500 dark:text-gray-400">⚙ {t('messages.system')}</p>
+                          <p>{m.message}</p>
+                          <p className="mt-1 text-[10px] text-gray-400">{timeAgo(m.createdAt || '')}</p>
+                        </div>
+                      </div>
+                    );
+                  }
                   const isMine =
                     typeof m.sender === 'object'
                       ? String(m.sender?._id) === String(user?._id)

@@ -4,6 +4,7 @@ const config = require('../config');
 const AppError = require('../utils/AppError');
 const Payment = require('../models/Payment');
 const { notifyUser } = require('./notificationController');
+const { postSystemMessage } = require('./messageController');
 
 let razorpay = null;
 if (config.razorpay.keyId && config.razorpay.keySecret) {
@@ -140,37 +141,55 @@ const verifyPayment = async (req, res, next) => {
     const property = await Property.findById(payment.propertyId);
 
     if (payment.type === 'token') {
+      const User = require('../models/User');
+      const buyer = await User.findById(payment.buyerId);
+      const owner = await User.findById(payment.ownerId);
+      const buyerName = buyer?.name || 'A buyer';
+      const ownerName = owner?.name || 'the owner';
+      const chatText = `💸 Token payment of ₹${(payment.amount / 100).toLocaleString('en-IN')} received for "${property?.title || 'your listing'}" — buyer: ${buyerName}, owner: ${ownerName}. Chat with each other here.`;
+      const conversation = property && (await postSystemMessage({ io: req.app.get('io'), propertyId: property._id, senderId: payment.buyerId, receiverId: payment.ownerId, text: chatText }));
+      const chatLink = conversation ? `/dashboard/messages?conversation=${conversation._id}` : '/dashboard/buyer';
+
       await notifyUser({
         io: req.app.get('io'),
         userId: payment.buyerId,
         type: 'system',
         message: '✅ Token payment successful. Your booking is confirmed.',
-        link: '/dashboard/buyer',
+        link: chatLink,
       });
       if (property) {
         await notifyUser({
           io: req.app.get('io'),
           userId: payment.ownerId,
           type: 'system',
-          message: `💳 ${req.user.name} paid a ₹500 token for "${property.title}"`,
-          link: '/dashboard/owner',
+          message: `💳 ${buyerName} paid a ₹${(payment.amount / 100).toLocaleString('en-IN')} token for "${property.title}". You can message ${buyerName} here.`,
+          link: conversation ? `/dashboard/messages?conversation=${conversation._id}` : '/dashboard/owner',
         });
       }
     } else {
+      const User = require('../models/User');
+      const buyer = await User.findById(payment.buyerId);
+      const owner = await User.findById(payment.ownerId);
+      const buyerName = buyer?.name || 'A buyer';
+      const ownerName = owner?.name || 'the owner';
+      const chatText = `💰 Full payment of ₹${(payment.amount / 100).toLocaleString('en-IN')} received for "${property?.title || 'your listing'}" — buyer: ${buyerName}, owner: ${ownerName}. Awaiting owner confirmation.`;
+      const conversation = property && (await postSystemMessage({ io: req.app.get('io'), propertyId: property._id, senderId: payment.buyerId, receiverId: payment.ownerId, text: chatText }));
+      const chatLink = conversation ? `/dashboard/messages?conversation=${conversation._id}` : '/dashboard/buyer';
+
       await notifyUser({
         io: req.app.get('io'),
         userId: payment.buyerId,
         type: 'system',
         message: `✅ Full payment of ₹${(payment.amount / 100).toLocaleString('en-IN')} successful. Awaiting owner confirmation.`,
-        link: '/dashboard/buyer',
+        link: chatLink,
       });
       if (property) {
         await notifyUser({
           io: req.app.get('io'),
           userId: payment.ownerId,
           type: 'system',
-          message: `💰 ${req.user.name} made a full payment of ₹${(payment.amount / 100).toLocaleString('en-IN')} for "${property.title}". Please confirm in your dashboard.`,
-          link: '/dashboard/owner',
+          message: `💰 ${buyerName} made a full payment of ₹${(payment.amount / 100).toLocaleString('en-IN')} for "${property.title}". Please confirm in your dashboard or chat with ${buyerName} here.`,
+          link: conversation ? `/dashboard/messages?conversation=${conversation._id}` : '/dashboard/owner',
         });
       }
     }
@@ -219,12 +238,21 @@ const confirmPayment = async (req, res, next) => {
     property.buyerId = payment.buyerId;
     await property.save();
 
+    const chatText = `✅ ${req.user.name} confirmed your full payment of ₹${(payment.amount / 100).toLocaleString('en-IN')} for "${property.title}". The property is now marked as sold.`;
+    const conversation = await postSystemMessage({
+      io: req.app.get('io'),
+      propertyId: payment.propertyId,
+      senderId: payment.ownerId,
+      receiverId: payment.buyerId,
+      text: chatText,
+    });
+
     await notifyUser({
       io: req.app.get('io'),
       userId: payment.buyerId,
       type: 'system',
       message: `🎉 Your purchase of "${property.title}" has been confirmed by the owner.`,
-      link: '/dashboard/buyer',
+      link: conversation ? `/dashboard/messages?conversation=${conversation._id}` : '/dashboard/buyer',
     });
 
     if (!isOwner) {
@@ -233,7 +261,7 @@ const confirmPayment = async (req, res, next) => {
         userId: payment.ownerId,
         type: 'system',
         message: `🏁 "${property.title}" was marked as sold by ${req.user.name}. Net payout after commission: ₹${(ownerAmountPaise / 100).toLocaleString('en-IN')}.`,
-        link: '/dashboard/owner',
+        link: conversation ? `/dashboard/messages?conversation=${conversation._id}` : '/dashboard/owner',
       });
     }
 
@@ -291,12 +319,21 @@ const refundPayment = async (req, res, next) => {
     payment.refundedAt = new Date();
     await payment.save();
 
+    const chatText = `💸 Token payment of ₹${(payment.amount / 100).toLocaleString('en-IN')} for "${property.title}" has been refunded by ${req.user.name}.`;
+    const conversation = await postSystemMessage({
+      io: req.app.get('io'),
+      propertyId: payment.propertyId,
+      senderId: payment.ownerId,
+      receiverId: payment.buyerId,
+      text: chatText,
+    });
+
     await notifyUser({
       io: req.app.get('io'),
       userId: payment.buyerId,
       type: 'system',
       message: `💸 Your ₹${(payment.amount / 100).toLocaleString('en-IN')} token payment for "${property.title}" has been refunded.`,
-      link: '/dashboard/buyer',
+      link: conversation ? `/dashboard/messages?conversation=${conversation._id}` : '/dashboard/buyer',
     });
 
     res.json({ success: true, data: payment, refund: { id: refund.id, status: refund.status } });

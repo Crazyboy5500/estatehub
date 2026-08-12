@@ -92,6 +92,7 @@ export interface Message {
   receiver?: string | User;
   message: string;
   read?: boolean;
+  isSystem?: boolean;
   createdAt?: string;
 }
 

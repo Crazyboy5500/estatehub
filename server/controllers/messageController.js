@@ -119,4 +119,37 @@ const sendMessage = async (req, res, next) => {
   }
 };
 
-module.exports = { getOrCreateConversation, getConversations, getMessages, sendMessage };
+const postSystemMessage = async ({ io, propertyId, senderId, receiverId, text }) => {
+  if (!propertyId || !senderId || !receiverId || !text) return null;
+
+  let conversation = await Conversation.findOne({
+    participants: { $all: [senderId, receiverId] },
+    property: propertyId,
+  });
+  if (!conversation) {
+    conversation = await Conversation.create({ participants: [senderId, receiverId], property: propertyId });
+  }
+
+  const message = await Message.create({
+    conversation: conversation._id,
+    sender: senderId,
+    receiver: receiverId,
+    property: propertyId,
+    message: text,
+    isSystem: true,
+  });
+
+  conversation.lastMessage = text;
+  conversation.lastMessageAt = new Date();
+  await conversation.save();
+
+  if (io) {
+    const payload = message.toObject();
+    io.to(`user:${senderId}`).emit('message:new', payload);
+    io.to(`user:${receiverId}`).emit('message:new', payload);
+  }
+
+  return conversation;
+};
+
+module.exports = { getOrCreateConversation, getConversations, getMessages, sendMessage, postSystemMessage };
