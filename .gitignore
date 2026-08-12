@@ -1,0 +1,31 @@
+# dependencies
+node_modules/
+.pnp
+
+# builds
+dist/
+build/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# logs
+*.log
+npm-debug.log*
+
+# uploads
+server/uploads/*
+
+# editor / os
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# vercel / render
+.vercel
+
+# coverage
+coverage/

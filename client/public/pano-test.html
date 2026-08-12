@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="/vendor/pannellum/pannellum.css">
+</head>
+<body style="margin:0;background:#111">
+  <div id="log" style="color:#fff;font-family:monospace;padding:8px">initializing…</div>
+  <div id="panorama" style="width:800px;height:500px"></div>
+  <script src="/vendor/pannellum/pannellum.js"></script>
+  <script>
+    try {
+      var el = document.getElementById('log');
+      el.textContent = 'globals: pannellum=' + typeof window.pannellum + ' libpannellum=' + typeof window.libpannellum;
+      var api = window.pannellum || window.libpannellum;
+      var viewer = api.viewer('panorama', {
+        type: 'equirectangular',
+        panorama: 'https://pannellum.org/images/alma.jpg',
+        autoLoad: true,
+        showZoomCtrl: false,
+        onload: function () { el.textContent += ' | LOADED'; },
+        onerror: function (m) { el.textContent += ' | ERROR: ' + m; },
+      });
+    } catch (e) {
+      document.getElementById('log').textContent = 'EXC: ' + e.message;
+    }
+  </script>
+</body>
+</html>

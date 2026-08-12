@@ -1,0 +1,179 @@
+import { jsPDF } from 'jspdf';
+import type { Property } from '../types';
+
+export interface EMIInput {
+  price: number;
+  downPayment: number;
+  years: number;
+  rate?: number;
+}
+
+export interface EMIResult {
+  emi: number;
+  totalPayment: number;
+  totalInterest: number;
+  principal: number;
+}
+
+export const calculateEMI = ({ price, downPayment, years, rate = 8.5 }: EMIInput): EMIResult => {
+  const principal = Math.max(price - downPayment, 0);
+  const months = Math.max(years * 12, 1);
+  const monthlyRate = rate / 12 / 100;
+
+  let emi: number;
+  if (monthlyRate === 0) {
+    emi = principal / months;
+  } else {
+    emi = (principal * monthlyRate * Math.pow(1 + monthlyRate, months)) / (Math.pow(1 + monthlyRate, months) - 1);
+  }
+
+  const totalPayment = emi * months;
+  const totalInterest = totalPayment - principal;
+
+  return {
+    emi: Math.round(emi),
+    totalPayment: Math.round(totalPayment),
+    totalInterest: Math.round(totalInterest),
+    principal,
+  };
+};
+
+export const compressImage = (file: File, maxWidth = 1600, quality = 0.8): Promise<Blob> =>
+  new Promise<Blob>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(maxWidth / img.width, 1);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas not supported'));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(
+          (blob) => (blob ? resolve(blob) : reject(new Error('Compression failed'))),
+          'image/jpeg',
+          quality
+        );
+      };
+      img.onerror = reject;
+      img.src = String(e.target?.result);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+export const generatePropertyPDF = async (property: Property): Promise<void> => {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const pageWidth = 210;
+  const margin = 14;
+  let y = 0;
+
+  const ensureSpace = (needed: number): void => {
+    if (y + needed > 285) {
+      doc.addPage();
+      y = margin;
+    }
+  };
+
+  doc.setFillColor(37, 99, 235);
+  doc.rect(0, 0, pageWidth, 40, 'F');
+  doc.setTextColor(255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(20);
+  doc.text('EstateHub', margin, 17);
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Property Brochure', margin, 25);
+  doc.text(`${property.city || ''} • ${property.purpose === 'rent' ? 'For Rent' : 'For Sale'}`, margin, 32);
+
+  y = 50;
+
+  const heading = (text: string): void => {
+    ensureSpace(14);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(37, 99, 235);
+    doc.text(text, margin, y);
+    y += 8;
+  };
+
+  const row = (label: string, value: string | number): void => {
+    ensureSpace(8);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(60);
+    doc.text(String(label), margin, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(90);
+    doc.text(String(value || '-'), margin + 42, y);
+    y += 6;
+  };
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(18);
+  doc.setTextColor(20);
+  doc.text(property.title || 'Property', margin, y);
+  y += 8;
+
+  heading('Overview');
+  row('Price', `₹${Number(property.price || 0).toLocaleString('en-IN')}${property.purpose === 'rent' ? ' / month' : ''}`);
+  row('Type', `${property.type} (${property.furnished || 'NA'})`);
+  row('Area', `${property.area || 0} sq.ft`);
+  row('Bedrooms', property.bedrooms || 0);
+  row('Bathrooms', property.bathrooms || 0);
+  row('Parking', property.parking ? `${property.parking} slots` : 'None');
+  row('Floors', property.totalFloors || 1);
+  row('Property Age', `${property.age || 0} years`);
+
+  heading('Location');
+  row('Address', `${property.address}, ${property.city}, ${property.state} ${property.pincode || ''}`.trim());
+
+  heading('Description');
+  const desc = doc.splitTextToSize(property.description || 'No description provided.', pageWidth - margin * 2);
+  ensureSpace(desc.length * 5);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(70);
+  doc.text(desc, margin, y);
+  y += desc.length * 5 + 4;
+
+  heading('Amenities');
+  const amenities = (property.amenities || []).join('  •  ');
+  const amenityLines = doc.splitTextToSize(amenities || 'Not specified', pageWidth - margin * 2);
+  ensureSpace(amenityLines.length * 5);
+  doc.setFontSize(10);
+  doc.setTextColor(70);
+  doc.text(amenityLines, margin, y);
+  y += amenityLines.length * 5 + 6;
+
+  heading('Contact');
+  doc.setFontSize(10);
+  doc.setTextColor(70);
+  doc.text(`View this property online: ${window.location.origin}/properties/${property._id}`, margin, y);
+  y += 6;
+  doc.setFont('helvetica', 'italic');
+  doc.text('Generated by EstateHub', margin, y);
+
+  const fileName = `${(property.title || 'property').replace(/\s+/g, '-').toLowerCase().slice(0, 40)}-brochure.pdf`;
+  doc.save(fileName);
+};
+
+export const shareProperty = async (property: Property): Promise<void> => {
+  const url = `${window.location.origin}/properties/${property._id}`;
+  const shareData = { title: property.title, url };
+  if (navigator.share) {
+    try {
+      await navigator.share(shareData);
+      return;
+    } catch {
+      // fall through to clipboard
+    }
+  }
+  await navigator.clipboard.writeText(url);
+};
