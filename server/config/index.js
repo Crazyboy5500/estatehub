@@ -1,7 +1,13 @@
 require('dotenv').config();
 
+const env = process.env.NODE_ENV || 'development';
+
+if (env === 'production' && !process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET is required in production. Set it in the environment variables.');
+}
+
 module.exports = {
-  env: process.env.NODE_ENV || 'development',
+  env,
   port: process.env.PORT || 5001,
   mongoURI: process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/estatehub',
   jwt: {
@@ -30,5 +36,6 @@ module.exports = {
     keyId: process.env.RAZORPAY_KEY_ID || '',
     keySecret: process.env.RAZORPAY_KEY_SECRET || '',
     webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || '',
+    commissionPercent: Number(process.env.ADMIN_COMMISSION_PERCENT) || 2,
   },
 };

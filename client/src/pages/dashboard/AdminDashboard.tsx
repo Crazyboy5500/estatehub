@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chart as ChartJS, ArcElement, BarElement, CategoryScale, LinearScale, Tooltip, Legend, PointElement, LineElement } from 'chart.js';
 import { Bar, Doughnut, Line } from 'react-chartjs-2';
 import { analyticsService } from '../../services/analyticsService';
+import { paymentService } from '../../services/paymentService';
 import { useAuth } from '../../hooks/useAuth';
 import { handleError } from '../../services/api';
-import { Spinner } from '../../components/ui';
-import { timeAgo } from '../../utils/format';
-import type { Property } from '../../types';
+import { Spinner, EmptyState, SafeImg } from '../../components/ui';
+import { timeAgo, formatPrice, formatDate } from '../../utils/format';
+import type { Property, Payment } from '../../types';
 
 ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip, Legend, PointElement, LineElement);
 
@@ -42,6 +44,8 @@ export default function AdminDashboard() {
   const [mostViewed, setMostViewed] = useState<Property[]>([]);
   const [visits, setVisits] = useState<CountStat[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [commissionTotal, setCommissionTotal] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -52,14 +56,17 @@ export default function AdminDashboard() {
       analyticsService.mostViewed(),
       analyticsService.visitsBooked(),
       analyticsService.recentActivity(),
+      paymentService.getAll(),
     ])
-      .then(([s, city, mon, viewed, vis, act]) => {
+      .then(([s, city, mon, viewed, vis, act, pays]) => {
         setStats(s.data.data);
         setByCity(city.data.data);
         setMonthly(mon.data.data);
         setMostViewed(viewed.data.data);
         setVisits(vis.data.data);
         setActivity(act.data.data);
+        setPayments(pays.data.data || []);
+        setCommissionTotal(pays.data.totals?.totalCommission || 0);
       })
       .catch((err) => catchError(err, t('notify.loadDashboard')))
       .finally(() => setLoading(false));
@@ -91,7 +98,7 @@ export default function AdminDashboard() {
     { label: t('dash.visitsBooked'), value: stats?.totalVisits ?? 0, icon: '📅' },
     { label: t('dash.messagesSent'), value: stats?.totalMessages ?? 0, icon: '💬' },
     { label: t('dash.pendingVerification'), value: stats?.pendingVerification ?? 0, icon: '⏳' },
-    { label: t('dash.totalListingValue'), value: `₹${((stats?.totalRevenue ?? 0) / 10000000).toFixed(2)} Cr`, icon: '💰' },
+    { label: t('dash.commissionCollected'), value: formatPrice(commissionTotal / 100), icon: '💰' },
   ];
 
   return (
@@ -154,6 +161,46 @@ export default function AdminDashboard() {
           </ul>
         )}
       </div>
+
+      <section>
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-bold">{t('dash.allPayments')}</h3>
+          <span className="text-sm font-semibold text-green-600">{t('dash.commissionCollected')}: {formatPrice(commissionTotal / 100)}</span>
+        </div>
+        {payments.length ? (
+          <div className="space-y-3">
+            {payments.map((p) => (
+              <div key={p._id} className="card flex flex-wrap items-center gap-4 p-4">
+                <SafeImg src={p.propertyId?.images?.[0]} alt="" className="h-14 w-20 rounded-lg object-cover" />
+                <div className="min-w-0 flex-1">
+                  <Link to={`/properties/${p.propertyId?._id}`} className="font-semibold hover:text-primary-600">
+                    {p.propertyId?.title || t('dash.paymentDetails')}
+                  </Link>
+                  <p className="text-sm text-gray-500">
+                    {p.type === 'full' ? t('dash.full') : t('dash.token')} • {t('dash.buyer')}: {p.buyerId?.name} • {t('dash.owner')}: {p.ownerId?.name} • {formatDate(p.createdAt || '')}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="font-bold">{formatPrice(p.amount / 100)}</p>
+                  {p.status === 'confirmed' && (
+                    <p className="text-xs text-green-600">{t('dash.adminCommission', { percent: p.commissionPercent })}: {formatPrice(p.commissionPaise / 100)}</p>
+                  )}
+                  <span className={`mt-1 inline-block rounded-full px-3 py-1 text-xs font-semibold ${
+                    p.status === 'confirmed' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+                    : p.status === 'paid' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300'
+                    : p.status === 'failed' ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                    : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'
+                  }`}>
+                    {t(`dash.${p.status}`)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState icon="💳" title={t('dash.noPayments')} message={t('dash.noPaymentsMsg')} />
+        )}
+      </section>
     </div>
   );
 }

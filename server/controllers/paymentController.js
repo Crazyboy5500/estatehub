@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const Razorpay = require('razorpay');
 const config = require('../config');
 const AppError = require('../utils/AppError');
+const Payment = require('../models/Payment');
 const { notifyUser } = require('./notificationController');
 
 let razorpay = null;
@@ -10,19 +11,85 @@ if (config.razorpay.keyId && config.razorpay.keySecret) {
 }
 
 const TOKEN_AMOUNT_PAISE = 50000; // ₹500 token payment
+const MAX_ORDER_PAISE = 50000000; // Razorpay default limit: ₹5 lakh per transaction (raisable via support)
+
+const getTokenPaid = async (buyerId, propertyId) => {
+  const token = await Payment.findOne({
+    buyerId,
+    propertyId,
+    type: 'token',
+    status: { $in: ['paid', 'confirmed'] },
+  }).sort('-createdAt');
+  return token;
+};
 
 const createOrder = async (req, res, next) => {
   try {
     if (!razorpay) throw new AppError('Payments are not configured (RAZORPAY_KEY_ID missing)', 503);
 
-    const { propertyId, visitId } = req.body;
+    const { propertyId, visitId, type = 'token' } = req.body;
     if (!propertyId) throw new AppError('propertyId is required', 400);
+    if (!['token', 'full'].includes(type)) throw new AppError('Invalid payment type', 400);
+
+    const Property = require('../models/Property');
+    const property = await Property.findById(propertyId);
+    if (!property) throw new AppError('Property not found', 404);
+    if (property.ownerId.toString() === req.user._id.toString()) {
+      throw new AppError('You cannot pay on your own property', 400);
+    }
+
+    let amount = TOKEN_AMOUNT_PAISE;
+    let tokenDeducted = 0;
+
+    if (type === 'full') {
+      if (property.purpose !== 'sale') {
+        throw new AppError('Full payment is only available for properties on sale', 400);
+      }
+      if (property.status === 'sold') {
+        throw new AppError('This property has already been sold', 400);
+      }
+
+      const existingFull = await Payment.findOne({
+        propertyId,
+        type: 'full',
+        status: { $in: ['created', 'paid'] },
+        buyerId: req.user._id,
+      });
+      if (existingFull) {
+        throw new AppError('You already have a pending full payment for this property', 400);
+      }
+
+      amount = Math.round(property.price * 100);
+      if (amount > MAX_ORDER_PAISE) {
+        throw new AppError(
+          `Full online payment is limited to ₹5 lakh per transaction (Razorpay limit). Contact the owner to complete this purchase, or raise the limit with Razorpay support.`,
+          400
+        );
+      }
+      const token = await getTokenPaid(req.user._id, propertyId);
+      if (token) {
+        tokenDeducted = TOKEN_AMOUNT_PAISE;
+        amount = Math.max(amount - tokenDeducted, 0);
+      }
+    }
 
     const order = await razorpay.orders.create({
-      amount: TOKEN_AMOUNT_PAISE,
+      amount,
       currency: 'INR',
-      receipt: `token_${propertyId}_${Date.now()}`,
-      notes: { propertyId, visitId: visitId || '', userId: String(req.user._id) },
+      receipt: `${type}_${propertyId}_${Date.now()}`,
+      notes: { propertyId, visitId: visitId || '', userId: String(req.user._id), type },
+    });
+
+    const payment = await Payment.create({
+      buyerId: req.user._id,
+      ownerId: property.ownerId,
+      propertyId,
+      visitId: visitId || null,
+      type,
+      amount,
+      tokenDeducted,
+      razorpayOrderId: order.id,
+      status: 'created',
     });
 
     res.json({
@@ -31,6 +98,7 @@ const createOrder = async (req, res, next) => {
       amount: order.amount,
       currency: order.currency,
       keyId: config.razorpay.keyId,
+      paymentId: payment._id,
     });
   } catch (error) {
     next(error);
@@ -41,7 +109,7 @@ const verifyPayment = async (req, res, next) => {
   try {
     if (!razorpay) throw new AppError('Payments are not configured', 503);
 
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, propertyId, visitId } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, paymentId } = req.body;
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
       throw new AppError('Missing payment verification data', 400);
     }
@@ -55,23 +123,53 @@ const verifyPayment = async (req, res, next) => {
       throw new AppError('Payment signature verification failed', 400);
     }
 
-    await notifyUser({
-      io: req.app.get('io'),
-      userId: req.user._id,
-      type: 'system',
-      message: '✅ Token payment successful. Your booking is confirmed.',
-      link: '/dashboard/buyer',
-    });
+    const payment = paymentId
+      ? await Payment.findById(paymentId)
+      : await Payment.findOne({ razorpayOrderId: razorpay_order_id });
+    if (!payment) throw new AppError('Payment record not found', 404);
+    if (payment.razorpayOrderId !== razorpay_order_id) {
+      throw new AppError('Payment order mismatch', 400);
+    }
 
-    if (propertyId) {
-      const Property = require('../models/Property');
-      const property = await Property.findById(propertyId);
+    payment.razorpayPaymentId = razorpay_payment_id;
+    payment.razorpaySignature = razorpay_signature;
+    payment.status = 'paid';
+    await payment.save();
+
+    const Property = require('../models/Property');
+    const property = await Property.findById(payment.propertyId);
+
+    if (payment.type === 'token') {
+      await notifyUser({
+        io: req.app.get('io'),
+        userId: payment.buyerId,
+        type: 'system',
+        message: '✅ Token payment successful. Your booking is confirmed.',
+        link: '/dashboard/buyer',
+      });
       if (property) {
         await notifyUser({
           io: req.app.get('io'),
-          userId: property.ownerId,
+          userId: payment.ownerId,
           type: 'system',
           message: `💳 ${req.user.name} paid a ₹500 token for "${property.title}"`,
+          link: '/dashboard/owner',
+        });
+      }
+    } else {
+      await notifyUser({
+        io: req.app.get('io'),
+        userId: payment.buyerId,
+        type: 'system',
+        message: `✅ Full payment of ₹${(payment.amount / 100).toLocaleString('en-IN')} successful. Awaiting owner confirmation.`,
+        link: '/dashboard/buyer',
+      });
+      if (property) {
+        await notifyUser({
+          io: req.app.get('io'),
+          userId: payment.ownerId,
+          type: 'system',
+          message: `💰 ${req.user.name} made a full payment of ₹${(payment.amount / 100).toLocaleString('en-IN')} for "${property.title}". Please confirm in your dashboard.`,
           link: '/dashboard/owner',
         });
       }
@@ -83,4 +181,171 @@ const verifyPayment = async (req, res, next) => {
   }
 };
 
-module.exports = { createOrder, verifyPayment, TOKEN_AMOUNT_PAISE };
+const confirmPayment = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const payment = await Payment.findById(id);
+    if (!payment) throw new AppError('Payment not found', 404);
+
+    const Property = require('../models/Property');
+    const property = await Property.findById(payment.propertyId);
+    if (!property) throw new AppError('Property not found', 404);
+
+    const isOwner = property.ownerId.toString() === req.user._id.toString();
+    const isAdmin = req.user.role === 'admin';
+    if (!isOwner && !isAdmin) {
+      throw new AppError('Only the property owner or admin can confirm payments', 403);
+    }
+
+    if (payment.type !== 'full') {
+      throw new AppError('Token payments do not require confirmation', 400);
+    }
+    if (payment.status !== 'paid') {
+      throw new AppError('Payment must be paid before confirmation', 400);
+    }
+
+    const commissionPaise = Math.round((payment.amount * config.razorpay.commissionPercent) / 100);
+    const ownerAmountPaise = payment.amount - commissionPaise;
+
+    payment.status = 'confirmed';
+    payment.commissionPercent = config.razorpay.commissionPercent;
+    payment.commissionPaise = commissionPaise;
+    payment.ownerAmountPaise = ownerAmountPaise;
+    payment.confirmedAt = new Date();
+    payment.confirmedBy = req.user._id;
+    await payment.save();
+
+    property.status = 'sold';
+    property.buyerId = payment.buyerId;
+    await property.save();
+
+    await notifyUser({
+      io: req.app.get('io'),
+      userId: payment.buyerId,
+      type: 'system',
+      message: `🎉 Your purchase of "${property.title}" has been confirmed by the owner.`,
+      link: '/dashboard/buyer',
+    });
+
+    if (!isOwner) {
+      await notifyUser({
+        io: req.app.get('io'),
+        userId: payment.ownerId,
+        type: 'system',
+        message: `🏁 "${property.title}" was marked as sold by ${req.user.name}. Net payout after commission: ₹${(ownerAmountPaise / 100).toLocaleString('en-IN')}.`,
+        link: '/dashboard/owner',
+      });
+    }
+
+    res.json({ success: true, data: payment });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getMyPayments = async (req, res, next) => {
+  try {
+    const payments = await Payment.find({ buyerId: req.user._id })
+      .sort('-createdAt')
+      .populate('propertyId', 'title images city address price purpose')
+      .populate('ownerId', 'name phone email');
+    res.json({ success: true, data: payments });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getOwnerPayments = async (req, res, next) => {
+  try {
+    const payments = await Payment.find({ ownerId: req.user._id })
+      .sort('-createdAt')
+      .populate('propertyId', 'title images city address price purpose')
+      .populate('buyerId', 'name phone email');
+    res.json({ success: true, data: payments });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getAllPayments = async (req, res, next) => {
+  try {
+    if (req.user.role !== 'admin') throw new AppError('Admin access required', 403);
+    const payments = await Payment.find()
+      .sort('-createdAt')
+      .populate('propertyId', 'title images city price purpose')
+      .populate('buyerId', 'name email')
+      .populate('ownerId', 'name email');
+
+    const totals = await Payment.aggregate([
+      { $match: { status: 'confirmed' } },
+      {
+        $group: {
+          _id: null,
+          totalCommission: { $sum: '$commissionPaise' },
+          totalConfirmed: { $sum: 1 },
+        },
+      },
+    ]);
+
+    res.json({
+      success: true,
+      data: payments,
+      totals: totals[0] || { totalCommission: 0, totalConfirmed: 0 },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const webhook = async (req, res) => {
+  try {
+    const signature = req.headers['x-razorpay-signature'];
+    const rawBody = req.body;
+    if (!config.razorpay.webhookSecret) {
+      return res.status(503).json({ success: false, message: 'Webhook secret not configured' });
+    }
+
+    const expected = crypto
+      .createHmac('sha256', config.razorpay.webhookSecret)
+      .update(rawBody)
+      .digest('hex');
+
+    if (signature !== expected) {
+      return res.status(400).json({ success: false, message: 'Invalid webhook signature' });
+    }
+
+    const event = JSON.parse(rawBody.toString('utf8'));
+    if (event.event !== 'payment.captured') {
+      return res.json({ success: true, received: event.event });
+    }
+
+    const payload = event.payload?.payment?.entity;
+    if (!payload?.order_id) {
+      return res.status(400).json({ success: false, message: 'Missing order_id' });
+    }
+
+    const payment = await Payment.findOne({ razorpayOrderId: payload.order_id });
+    if (!payment) {
+      return res.status(404).json({ success: false, message: 'Payment record not found' });
+    }
+
+    payment.razorpayPaymentId = payload.id;
+    payment.status = 'paid';
+    await payment.save();
+
+    return res.json({ success: true });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+module.exports = {
+  createOrder,
+  verifyPayment,
+  confirmPayment,
+  getMyPayments,
+  getOwnerPayments,
+  getAllPayments,
+  webhook,
+  TOKEN_AMOUNT_PAISE,
+};

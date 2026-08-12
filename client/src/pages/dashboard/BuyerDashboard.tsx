@@ -1,28 +1,42 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { HeartIcon, CalendarIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
+import { HeartIcon, CalendarIcon, ChatBubbleLeftRightIcon, CreditCardIcon } from '@heroicons/react/24/outline';
 import PropertyCard from '../../components/PropertyCard';
 import { Spinner, EmptyState, SafeImg } from '../../components/ui';
 import { useAuth } from '../../hooks/useAuth';
 import { authService } from '../../services/authService';
 import { visitService } from '../../services/visitService';
+import { paymentService } from '../../services/paymentService';
 import { handleError } from '../../services/api';
-import { formatDate, statusLabel, statusBadgeClass } from '../../utils/format';
-import type { Property, Visit } from '../../types';
+import { formatDate, formatPrice, statusLabel, statusBadgeClass } from '../../utils/format';
+import type { Property, Visit, Payment } from '../../types';
+
+const PAYMENT_STATUSES = ['created', 'paid', 'confirmed', 'failed'];
+
+function statusClass(status: string): string {
+  return {
+    created: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
+    paid: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
+    confirmed: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
+    failed: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+  }[status] || 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300';
+}
 
 export default function BuyerDashboard() {
   const { user, notify } = useAuth();
   const { t } = useTranslation();
   const [favorites, setFavorites] = useState<Property[]>([]);
   const [bookings, setBookings] = useState<Visit[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([authService.getMe(), visitService.getMy()])
-      .then(([me, visits]) => {
+    Promise.all([authService.getMe(), visitService.getMy(), paymentService.getMy()])
+      .then(([me, visits, pays]) => {
         setFavorites(me.data.user.favorites || []);
         setBookings(visits.data.data);
+        setPayments(pays.data.data || []);
       })
       .catch((err) => notify(handleError(err, t('notify.loadDashboard')), 'error'))
       .finally(() => setLoading(false));
@@ -100,6 +114,41 @@ export default function BuyerDashboard() {
           </div>
         ) : (
           <EmptyState icon="📅" title={t('dash.noVisits')} message={t('dash.noVisitsMsg')} />
+        )}
+      </section>
+
+      <section>
+        <h3 className="mb-4 text-lg font-bold">{t('dash.myPayments')}</h3>
+        {payments.length ? (
+          <div className="space-y-3">
+            {payments.map((p) => {
+              const prop = p.propertyId;
+              return (
+                <div key={p._id} className="card flex flex-wrap items-center gap-4 p-5">
+                  <SafeImg src={prop?.images?.[0]} alt="" className="h-16 w-24 rounded-lg object-cover" />
+                  <div className="min-w-0 flex-1">
+                    <Link to={`/properties/${prop?._id}`} className="font-semibold hover:text-primary-600">
+                      {prop?.title || t('dash.paymentDetails')}
+                    </Link>
+                    <p className="text-sm text-gray-500">
+                      {t('dash.paymentType')}: {p.type === 'full' ? t('dash.full') : t('dash.token')} • {t('dash.paymentDate')}: {formatDate(p.createdAt || '')}
+                    </p>
+                    {p.type === 'full' && p.status === 'confirmed' && (
+                      <p className="mt-1 text-xs text-green-600">{t('notify.payConfirmSuccess')}</p>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <p className="font-bold">{formatPrice(p.amount / 100)}</p>
+                    <span className={`mt-1 inline-block rounded-full px-3 py-1 text-xs font-semibold ${statusClass(p.status)}`}>
+                      {PAYMENT_STATUSES.includes(p.status) ? t(`dash.${p.status}`) : p.status}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyState icon="💳" title={t('dash.noPayments')} message={t('dash.noPaymentsMsg')} />
         )}
       </section>
     </div>

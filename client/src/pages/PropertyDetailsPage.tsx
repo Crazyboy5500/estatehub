@@ -298,10 +298,29 @@ function PanoramaModal({
   );
 }
 
-function PaymentModal({ property, onClose }: { property: Property; onClose: () => void }) {
+function PaymentModal({ property, initialType = 'token', onClose }: { property: Property; initialType?: 'token' | 'full'; onClose: () => void }) {
+  const [type, setType] = useState<'token' | 'full'>(initialType);
+  const [tokenPaid, setTokenPaid] = useState(false);
   const [processing, setProcessing] = useState(false);
-  const { isAuthenticated, notify, catchError } = useAuth();
+  const { user, isAuthenticated, notify, catchError } = useAuth();
   const { t } = useTranslation();
+
+  useEffect(() => {
+    if (!isAuthenticated || type !== 'full') return;
+    paymentService
+      .getMy()
+      .then(({ data }) => {
+        const paid = (data.data || []).some(
+          (p: { type?: string; status?: string; propertyId?: { _id?: string } }) =>
+            p.type === 'token' &&
+            ['paid', 'confirmed'].includes(p.status || '') &&
+            p.propertyId?._id === property._id
+        );
+        setTokenPaid(paid);
+      })
+      .catch(() => setTokenPaid(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type, property._id, isAuthenticated]);
 
   const loadRazorpay = (): Promise<void> =>
     new Promise((resolve, reject) => {
@@ -313,6 +332,9 @@ function PaymentModal({ property, onClose }: { property: Property; onClose: () =
       document.body.appendChild(s);
     });
 
+  const fullAmount = Math.max(Math.round(property.price * 100) - (tokenPaid ? 50000 : 0), 0);
+  const overLimit = Math.round(property.price * 100) > 50000000;
+
   const pay = async (): Promise<void> => {
     if (!isAuthenticated) {
       notify(t('notify.needLoginPay'), 'info');
@@ -322,23 +344,24 @@ function PaymentModal({ property, onClose }: { property: Property; onClose: () =
     setProcessing(true);
     try {
       await loadRazorpay();
-      const { data } = await paymentService.createOrder(property._id);
+      const { data } = await paymentService.createOrder(property._id, type);
       const options: Record<string, unknown> = {
         key: data.keyId,
         order_id: data.orderId,
         amount: data.amount,
         currency: data.currency,
         name: 'EstateHub',
-        description: `Token payment for ${property.title}`,
-        prefill: { email: (property.ownerId as { email?: string } | undefined)?.email || '' },
+        description: type === 'full' ? `Full payment for ${property.title}` : `Token payment for ${property.title}`,
+        prefill: { email: user?.email || '' },
         theme: { color: '#2563eb' },
         handler: async (response: { razorpay_payment_id?: string; razorpay_order_id?: string; razorpay_signature?: string }) => {
           try {
             await paymentService.verify({
               ...response,
               propertyId: property._id,
+              paymentId: data.paymentId,
             });
-            notify(t('notify.paymentSuccess'));
+            notify(type === 'full' ? t('notify.fullPayPending') : t('notify.paymentSuccess'));
             onClose();
           } catch (error) {
             catchError(error, t('notify.payVerifyFailed'));
@@ -361,17 +384,69 @@ function PaymentModal({ property, onClose }: { property: Property; onClose: () =
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="card w-full max-w-sm p-6" onClick={(e: MouseEvent) => e.stopPropagation()}>
-        <h3 className="text-lg font-bold">{t('detail.paymentTitle')}</h3>
+      <div className="card w-full max-w-md p-6" onClick={(e: MouseEvent) => e.stopPropagation()}>
+        <h3 className="text-lg font-bold">{type === 'full' ? t('detail.fullPayTitle') : t('detail.paymentTitle')}</h3>
         <p className="mt-1 text-sm text-gray-500">{property.title}</p>
-        <div className="mt-4 rounded-xl bg-primary-50 p-4 text-center dark:bg-primary-950">
-          <p className="text-3xl font-extrabold text-primary-700 dark:text-primary-400">{t('detail.tokenAmount')}</p>
-          <p className="mt-1 text-xs text-gray-500">{t('detail.tokenDesc')}</p>
-        </div>
+
+        {property.purpose === 'sale' && property.status !== 'sold' && (
+          <div className="mt-4 flex gap-2 rounded-xl bg-gray-50 p-1 dark:bg-gray-800">
+            <button
+              onClick={() => setType('token')}
+              className={`flex-1 rounded-lg py-2 text-sm font-semibold transition ${type === 'token' ? 'bg-primary-600 text-white' : 'text-gray-600 dark:text-gray-300'}`}
+            >
+              ₹500 {t('dash.token')}
+            </button>
+            <button
+              onClick={() => setType('full')}
+              disabled={overLimit}
+              title={overLimit ? t('detail.overLimit') : undefined}
+              className={`flex-1 rounded-lg py-2 text-sm font-semibold transition ${type === 'full' ? 'bg-primary-600 text-white' : 'text-gray-600 dark:text-gray-300'} ${overLimit ? 'cursor-not-allowed opacity-40' : ''}`}
+            >
+              {t('dash.full')}
+            </button>
+          </div>
+        )}
+
+        {overLimit && (
+          <p className="mt-3 rounded-lg bg-yellow-50 p-3 text-xs text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-300">
+            {t('detail.overLimit')}
+          </p>
+        )}
+
+        {type === 'token' ? (
+          <div className="mt-4 rounded-xl bg-primary-50 p-4 text-center dark:bg-primary-950">
+            <p className="text-3xl font-extrabold text-primary-700 dark:text-primary-400">{t('detail.tokenAmount')}</p>
+            <p className="mt-1 text-xs text-gray-500">{t('detail.tokenDesc')}</p>
+          </div>
+        ) : (
+          <div className="mt-4 space-y-2 rounded-xl bg-gray-50 p-4 dark:bg-gray-800">
+            <p className="text-xs text-gray-500">{t('detail.fullPayDesc')}</p>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">{t('detail.fullAmount')}</span>
+              <span className="font-bold">{formatPrice(property.price, 'sale')}</span>
+            </div>
+            {tokenPaid && (
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">{t('detail.tokenDeducted')}</span>
+                <span className="font-semibold text-green-600">− ₹500</span>
+              </div>
+            )}
+            <div className="flex justify-between border-t border-gray-200 pt-2 text-base dark:border-gray-700">
+              <span className="font-semibold">{t('detail.fullAmount')}</span>
+              <span className="font-extrabold text-primary-600">{formatPrice(fullAmount / 100, 'sale')}</span>
+            </div>
+            <p className="pt-1 text-[11px] text-gray-400">{t('detail.tokenDeductNote')}</p>
+          </div>
+        )}
+
         <div className="mt-5 flex gap-3">
           <button onClick={onClose} className="btn-outline flex-1">{t('common.cancel')}</button>
           <button onClick={() => void pay()} disabled={processing} className="btn-primary flex-1">
-            {processing ? t('detail.starting') : t('detail.payToken')}
+            {processing
+              ? t('detail.starting')
+              : type === 'full'
+                ? t('detail.payFull', { amount: formatPrice(fullAmount / 100, 'sale') })
+                : t('detail.payToken')}
           </button>
         </div>
       </div>
@@ -464,7 +539,7 @@ export default function PropertyDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [booking, setBooking] = useState(false);
   const [showPanorama, setShowPanorama] = useState(false);
-  const [showPayment, setShowPayment] = useState(false);
+  const [showPayment, setShowPayment] = useState<'token' | 'full' | null>(null);
   const [contactOpen, setContactOpen] = useState(false);
   const [messageText, setMessageText] = useState('');
   const [fav, setFav] = useState(false);
@@ -696,17 +771,30 @@ export default function PropertyDetailsPage() {
               </div>
             </div>
             <div className="mt-5 space-y-3">
-              <button onClick={() => setBooking(true)} className="btn-primary w-full">
-                {t('detail.scheduleVisit')}
-              </button>
-              <button onClick={() => setShowPayment(true)} className="btn w-full border-2 border-primary-600 text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950">
-                {t('detail.reserveToken')}
-              </button>
-              <button onClick={() => void startChat()} className="btn-outline w-full">
-                {t('detail.contactOwner')}
-              </button>
-              {owner?.phone && (
-                <a href={`tel:${owner.phone}`} className="btn-outline w-full">📞 {owner.phone}</a>
+              {property.status === 'sold' ? (
+                <div className="rounded-xl bg-gray-100 p-4 text-center dark:bg-gray-800">
+                  <p className="text-lg font-bold text-gray-600 dark:text-gray-300">🏁 {t('notify.soldMessage')}</p>
+                </div>
+              ) : (
+                <>
+                  {property.purpose === 'sale' && property.price * 100 <= 50000000 && (
+                    <button onClick={() => setShowPayment('full')} className="btn w-full border-2 border-green-600 text-green-700 hover:bg-green-50 dark:hover:bg-green-950 dark:text-green-400">
+                      {t('detail.buyNow')}
+                    </button>
+                  )}
+                  <button onClick={() => setBooking(true)} className="btn-primary w-full">
+                    {t('detail.scheduleVisit')}
+                  </button>
+                  <button onClick={() => setShowPayment('token')} className="btn w-full border-2 border-primary-600 text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950">
+                    {t('detail.reserveToken')}
+                  </button>
+                  <button onClick={() => void startChat()} className="btn-outline w-full">
+                    {t('detail.contactOwner')}
+                  </button>
+                  {owner?.phone && (
+                    <a href={`tel:${owner.phone}`} className="btn-outline w-full">📞 {owner.phone}</a>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -724,7 +812,7 @@ export default function PropertyDetailsPage() {
 
       {booking && <BookingModal property={property} onClose={() => setBooking(false)} />}
       {showPanorama && <PanoramaModal url={property.panorama || ''} title={property.title} onClose={() => setShowPanorama(false)} />}
-      {showPayment && <PaymentModal property={property} onClose={() => setShowPayment(false)} />}
+      {showPayment && <PaymentModal property={property} initialType={showPayment} onClose={() => setShowPayment(null)} />}
     </div>
   );
 }

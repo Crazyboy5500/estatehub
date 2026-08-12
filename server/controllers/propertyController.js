@@ -7,7 +7,15 @@ const { notifyUser } = require('./notificationController');
 
 const getProperties = async (req, res, next) => {
   try {
-    const features = new APIFeatures(Property.find(), req.query)
+    const query = { ...req.query };
+    if (!query.status) {
+      query.status = 'verified';
+    }
+    if (req.user && req.user.role === 'admin' && query.status === 'all') {
+      delete query.status;
+    }
+
+    const features = new APIFeatures(Property.find(), query)
       .filter()
       .rangeFilter()
       .keyword()

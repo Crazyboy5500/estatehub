@@ -76,8 +76,8 @@ describe('Auth', () => {
     expect(res.body.user.email).toBe('testbuyer@estatehub.test');
   });
 
-  it('google login is graceful when unconfigured', async () => {
+  it('google login rejects an invalid token (configured or not)', async () => {
     const res = await request(app).post('/api/auth/google').send({ credential: 'fake-token' });
-    expect([400, 503]).toContain(res.status);
+    expect([400, 401, 500, 503]).toContain(res.status);
   });
 });

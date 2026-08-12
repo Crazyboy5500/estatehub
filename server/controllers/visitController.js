@@ -75,7 +75,16 @@ const respondToVisit = async (req, res, next) => {
 
     const visit = await Visit.findById(id);
     if (!visit) throw new AppError('Visit not found', 404);
-    if (visit.ownerId.toString() !== req.user._id.toString() && visit.buyerId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+
+    const isOwner = visit.ownerId.toString() === req.user._id.toString();
+    const isBuyer = visit.buyerId.toString() === req.user._id.toString();
+    const isAdmin = req.user.role === 'admin';
+
+    if (isBuyer) {
+      if (status !== 'cancelled') {
+        throw new AppError('Buyers can only cancel their own visit requests', 403);
+      }
+    } else if (!isOwner && !isAdmin) {
       throw new AppError('Not authorized to update this visit', 403);
     }
 

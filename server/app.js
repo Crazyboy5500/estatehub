@@ -33,6 +33,7 @@ app.use(
     crossOriginResourcePolicy: { policy: 'cross-origin' },
   })
 );
+app.use('/api/payments/webhook', express.raw({ type: '*/*' }));
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(mongoSanitize());

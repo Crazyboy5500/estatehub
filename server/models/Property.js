@@ -8,6 +8,7 @@ const propertySchema = new mongoose.Schema(
       required: [true, 'Owner is required'],
       index: true,
     },
+    buyerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     title: { type: String, required: [true, 'Title is required'], trim: true, maxlength: 120 },
     description: { type: String, required: [true, 'Description is required'], maxlength: 5000 },
     type: {

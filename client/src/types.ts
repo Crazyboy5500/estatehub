@@ -141,6 +141,25 @@ export interface FavoriteUser extends User {
   role: 'owner' | 'admin' | 'buyer';
 }
 
+export interface Payment {
+  _id: string;
+  buyerId: { _id: string; name?: string; email?: string; phone?: string };
+  ownerId: { _id: string; name?: string; email?: string; phone?: string };
+  propertyId: { _id: string; title?: string; images?: string[]; city?: string; address?: string; price?: number; purpose?: string };
+  type: 'token' | 'full';
+  amount: number;
+  currency: string;
+  tokenDeducted: number;
+  status: 'created' | 'paid' | 'confirmed' | 'failed';
+  commissionPercent: number;
+  commissionPaise: number;
+  ownerAmountPaise: number;
+  razorpayOrderId: string;
+  razorpayPaymentId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface RecentSearch {
   label: string;
   params: string;
