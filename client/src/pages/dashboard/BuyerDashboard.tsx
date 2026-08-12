@@ -10,9 +10,10 @@ import { visitService } from '../../services/visitService';
 import { paymentService } from '../../services/paymentService';
 import { handleError } from '../../services/api';
 import { formatDate, formatPrice, statusLabel, statusBadgeClass } from '../../utils/format';
+import { useScrollToTab } from '../../utils/useScrollToTab';
 import type { Property, Visit, Payment } from '../../types';
 
-const PAYMENT_STATUSES = ['created', 'paid', 'confirmed', 'failed'];
+const PAYMENT_STATUSES = ['created', 'paid', 'confirmed', 'refunded', 'failed'];
 
 function statusClass(status: string): string {
   return {
@@ -42,6 +43,8 @@ export default function BuyerDashboard() {
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useScrollToTab(!loading);
 
   if (loading) return <Spinner />;
 
@@ -76,7 +79,7 @@ export default function BuyerDashboard() {
         </div>
       </div>
 
-      <section>
+      <section id="tab-saved" style={{ scrollMarginTop: '88px' }}>
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-bold">{t('dash.savedTitle')}</h3>
           <Link to="/properties" className="text-sm text-primary-600 hover:underline">{t('dash.browseMore')}</Link>
@@ -90,7 +93,7 @@ export default function BuyerDashboard() {
         )}
       </section>
 
-      <section>
+      <section id="tab-visits" style={{ scrollMarginTop: '88px' }}>
         <h3 className="mb-4 text-lg font-bold">{t('dash.bookedTitle')}</h3>
         {bookings.length ? (
           <div className="space-y-4">
@@ -117,7 +120,7 @@ export default function BuyerDashboard() {
         )}
       </section>
 
-      <section>
+      <section id="tab-payments" style={{ scrollMarginTop: '88px' }}>
         <h3 className="mb-4 text-lg font-bold">{t('dash.myPayments')}</h3>
         {payments.length ? (
           <div className="space-y-3">

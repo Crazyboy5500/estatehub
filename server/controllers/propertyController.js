@@ -273,7 +273,7 @@ const updateStatus = async (req, res, next) => {
       userId: property.ownerId,
       type: 'property',
       message: `Your listing "${property.title}" was ${status === 'verified' ? 'approved ✅' : status === 'rejected' ? 'rejected ❌' : `marked as ${status}`}`,
-      link: '/dashboard/owner',
+      link: '/dashboard/owner?tab=listings',
     });
 
     res.json({ success: true, data: property });

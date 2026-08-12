@@ -11,6 +11,7 @@ import { analyticsService } from '../../services/analyticsService';
 import { paymentService } from '../../services/paymentService';
 import { handleError } from '../../services/api';
 import { statusLabel, statusBadgeClass, formatPrice, formatDate } from '../../utils/format';
+import { useScrollToTab } from '../../utils/useScrollToTab';
 import { PlusCircleIcon, BuildingOfficeIcon, CreditCardIcon } from '@heroicons/react/24/outline';
 import type { Property, Payment } from '../../types';
 
@@ -92,6 +93,8 @@ export default function OwnerDashboard() {
   const pendingFull = payments.filter((p) => p.type === 'full' && p.status === 'paid');
   const totalPayout = payments.reduce((sum, p) => sum + (p.ownerAmountPaise || 0), 0);
 
+  useScrollToTab(!loading);
+
   if (loading) return <Spinner />;
 
   const chartData = {
@@ -167,7 +170,7 @@ export default function OwnerDashboard() {
         </div>
       </div>
 
-      <section>
+      <section id="tab-payments" style={{ scrollMarginTop: '88px' }}>
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-bold"><CreditCardIcon className="mr-1 inline h-5 w-5" />{t('dash.payoutTitle')}</h3>
           {totalPayout > 0 && <span className="text-sm font-semibold text-green-600">{t('dash.totalEarnings')}: {formatPrice(totalPayout / 100)}</span>}
@@ -230,7 +233,7 @@ export default function OwnerDashboard() {
         )}
       </section>
 
-      <section>
+      <section id="tab-listings" style={{ scrollMarginTop: '88px' }}>
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-bold"><BuildingOfficeIcon className="mr-1 inline h-5 w-5" />{t('dash.myListings')}</h3>
           <span className="text-sm text-gray-500">{t('dash.total', { count: listings.length })}</span>

@@ -9,6 +9,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { handleError } from '../../services/api';
 import { Spinner, EmptyState, SafeImg } from '../../components/ui';
 import { timeAgo, formatPrice, formatDate } from '../../utils/format';
+import { useScrollToTab } from '../../utils/useScrollToTab';
 import type { Property, Payment } from '../../types';
 
 ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip, Legend, PointElement, LineElement);
@@ -72,6 +73,8 @@ export default function AdminDashboard() {
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useScrollToTab(!loading);
 
   if (loading) return <Spinner />;
 
@@ -162,7 +165,7 @@ export default function AdminDashboard() {
         )}
       </div>
 
-      <section>
+      <section id="tab-payments" style={{ scrollMarginTop: '88px' }}>
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-bold">{t('dash.allPayments')}</h3>
           <span className="text-sm font-semibold text-green-600">{t('dash.commissionCollected')}: {formatPrice(commissionTotal / 100)}</span>

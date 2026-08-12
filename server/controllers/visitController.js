@@ -109,7 +109,7 @@ const respondToVisit = async (req, res, next) => {
       userId: visit.buyerId,
       type: 'visit',
       message: `The owner ${statusMessages[status] || status} your visit request for ${visit.date ? new Date(visit.date).toLocaleDateString('en-IN') : ''}${status === 'rescheduled' && visit.time ? ` at ${visit.time}` : ''}`,
-      link: '/dashboard/buyer',
+      link: '/dashboard/buyer?tab=visits',
     });
 
     res.json({ success: true, data: visit });
