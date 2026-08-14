@@ -151,7 +151,7 @@ export interface Payment {
   amount: number;
   currency: string;
   tokenDeducted: number;
-  status: 'created' | 'paid' | 'confirmed' | 'failed';
+  status: 'created' | 'paid' | 'confirmed' | 'refunded' | 'failed';
   commissionPercent: number;
   commissionPaise: number;
   ownerAmountPaise: number;

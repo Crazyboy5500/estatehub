@@ -11,7 +11,6 @@ import { Spinner, EmptyState, SafeImg } from '../../components/ui';
 import { timeAgo, formatPrice, formatDate } from '../../utils/format';
 import { useScrollToTab } from '../../utils/useScrollToTab';
 import type { Property, Payment } from '../../types';
-
 ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip, Legend, PointElement, LineElement);
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -75,6 +74,19 @@ export default function AdminDashboard() {
   }, []);
 
   useScrollToTab(!loading);
+
+  const handleRefund = async (payment: Payment): Promise<void> => {
+    if (!window.confirm(t('dash.refundConfirmMsg', { title: payment.propertyId?.title || '', amount: formatPrice(payment.amount / 100) }))) return;
+    try {
+      await paymentService.refund(payment._id);
+      notify(t('notify.refundSuccess'));
+      const res = await paymentService.getAll();
+      setPayments(res.data.data || []);
+      setCommissionTotal(res.data.totals?.totalCommission || 0);
+    } catch (error) {
+      catchError(error, t('notify.refundFailed'));
+    }
+  };
 
   if (loading) return <Spinner />;
 
@@ -172,7 +184,9 @@ export default function AdminDashboard() {
         </div>
         {payments.length ? (
           <div className="space-y-3">
-            {payments.map((p) => (
+            {payments.map((p) => {
+              const isRefundable = p.type === 'token' && p.status === 'paid';
+              return (
               <div key={p._id} className="card flex flex-wrap items-center gap-4 p-4">
                 <SafeImg src={p.propertyId?.images?.[0]} alt="" className="h-14 w-20 rounded-lg object-cover" />
                 <div className="min-w-0 flex-1">
@@ -191,14 +205,17 @@ export default function AdminDashboard() {
                   <span className={`mt-1 inline-block rounded-full px-3 py-1 text-xs font-semibold ${
                     p.status === 'confirmed' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
                     : p.status === 'paid' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300'
+                    : p.status === 'refunded' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
                     : p.status === 'failed' ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
                     : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'
                   }`}>
                     {t(`dash.${p.status}`)}
                   </span>
                 </div>
+                {isRefundable && <button onClick={() => void handleRefund(p)} className="btn-secondary">{t('dash.refundToken')}</button>}
               </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <EmptyState icon="💳" title={t('dash.noPayments')} message={t('dash.noPaymentsMsg')} />

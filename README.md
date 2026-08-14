@@ -25,12 +25,13 @@ A production-style MERN full-stack real estate marketplace: buyers find and book
 - 🕶️ **360° virtual tours** (Pannellum) on properties with a panorama image
 - 📄 **PDF brochure download** (jsPDF) with branded layout
 - 💰 Mortgage EMI calculator, share property, download property sheet
-- 🔒 **Razorpay token payments** (₹500 reservation) with signature verification (optional)
+- 🔒 **Razorpay payments**: ₹500 token reservations + full purchases (token deducted), HMAC signature verification, owner confirmation with 2% commission, owner/admin token refunds via the Razorpay refund API (with chunked fallback for test-mode credit limits)
+- 💬 **Payment updates in chat**: token paid / full paid / confirmed / refunded events post system messages into the buyer–owner conversation, and notifications deep-link to the relevant dashboard section (payments, visits, listings)
 - ❤️ Favorites, compare up to 2 properties, similar properties, trending, view counters
 - 🌙 Dark mode, infinite scroll, lazy images, lazy-loaded routes (code splitting), responsive design
 - 📲 **PWA**: installable (manifest + icons), offline shell, API/upload runtime caching (Workbox)
 - 🛡️ Security hardening: Helmet, rate limiting, mongo-sanitize, HPP protection
-- 🧪 **API test suite** (Vitest + Supertest, 22 tests)
+- 🧪 **API test suite** (Vitest + Supertest, 25 tests)
 
 ## 🧱 Tech Stack
 
@@ -143,10 +144,27 @@ estatehub/
 | PUT | `/api/visits/:id` | owner | Accept / reject / reschedule |
 | GET/POST | `/api/messages/conversations*` | user | Chat (Socket.io for live) |
 | GET | `/api/notifications*` | user | Notifications + unread count |
-| POST | `/api/payments/create-order` / `verify` | user | Razorpay token payments |
+| POST | `/api/payments/create-order` | user | Razorpay order (token ₹500 or full, token-deducted) |
+| POST | `/api/payments/verify` | user | HMAC signature verification → `paid` |
+| POST | `/api/payments/:id/confirm` | owner/admin | Confirm full payment → property sold, 2% commission |
+| POST | `/api/payments/:id/refund` | owner/admin | Refund paid token via Razorpay refund API → `refunded` |
+| GET | `/api/payments/my` | user | Buyer's payments |
+| GET | `/api/payments/owner` | owner/admin | Owner's payments + payout |
+| GET | `/api/payments/all` | admin | All platform payments + commission total |
 | GET | `/api/analytics/*` | admin | Platform analytics |
 | GET | `/api/analytics/owner` | owner | Owner analytics |
 | GET | `/api/users`, `PUT /api/users/:id/block` | admin | User management |
+
+## 💳 Payments (Razorpay)
+
+**Flow:** buyer reserves with a ₹500 token, or buys outright (previously paid token is deducted). `verify` checks the HMAC signature server-side before marking `paid`. Full payments need owner confirmation (Confirm button in Payouts & Earnings) → property marked `sold`, 2% admin commission computed, owner payout stored. Token refunds (owner or admin, from the dashboard) call the Razorpay refund API and notify the buyer. Every event also posts a system message into the buyer–owner chat and deep-links its notification to the right dashboard section.
+
+**Test mode recipe** (card payments):
+- Mobile: `9876501234` (Razorpay blocklists dummy numbers like `9876543210`)
+- Card: `5267 3181 8797 5449` (Mastercard success) — the Visa test card `4111 1111 1111 1111` is rejected as "international" on newer checkouts
+- Expiry `11/40`, CVV `123`, OTP `1234` (must be 4–10 digits; shorter OTPs fail deliberately)
+
+**Test-mode notes:** captured payments don't add to the dashboard "Collected" balance (no settlement in test mode), and refunds are backed by a limited credit line — a large refund may need to be issued in chunks (the app retries automatically) or from the Razorpay Dashboard. Live mode behaves normally.
 
 ## 🧪 Tests
 ```bash
@@ -170,7 +188,7 @@ docker compose up --build
 | Google Login | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
 | Emails (verification, reset, OTP) | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` |
 | Cloudinary (image/video CDN) | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` |
-| Razorpay token payments | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` |
+| Razorpay payments (token, full, refunds) | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` |
 
 Without credentials, these features degrade gracefully (console log for emails, local uploads, disabled buttons with notices).
 
@@ -184,11 +202,13 @@ Without credentials, these features degrade gracefully (console log for emails, 
 - [x] **Phase 6 — PWA:** installable app (manifest, icons, service worker, offline shell)
 - [x] **Phase 6 — TypeScript:** client fully migrated to TypeScript (strict, `tsc --noEmit` clean; `npm run lint` = typecheck)
 - [x] **Phase 6 — i18n:** Hindi + English localization (language switcher in navbar, persisted choice, status badges; translation keys are strictly type-checked against the English catalog via `i18next` `CustomTypeOptions` + `strictKeyChecks`)
+- [x] **Phase 7 — Payments v2:** full purchases (token-deducted), owner confirmation + commission, owner/admin refunds, payment system messages in chat, notification deep-links to dashboard sections, nodemon dev workflow
 
 ## 🧪 Known Notes
 - Email features activate when SMTP credentials are set in `.env`
 - Without Cloudinary credentials, uploads are stored locally in `server/uploads`
 - Port 5001 is used by default (5000 is often occupied by macOS AirPlay)
+- Dev workflow: `npm run dev -w server` (nodemon auto-restarts on save) + `npm run dev -w client` (Vite HMR)
 
 ## 📄 License
 MIT
