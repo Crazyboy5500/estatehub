@@ -22,7 +22,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 connectDB().then(() => {
-  server.listen(config.port, () => {
+  server.listen(config.port,'0.0.0.0', () => {
     console.log(`EstateHub API running on http://localhost:${config.port}`);
   });
 });
