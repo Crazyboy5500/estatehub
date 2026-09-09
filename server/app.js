@@ -22,6 +22,10 @@ const paymentRoutes = require('./routes/paymentRoutes');
 
 const app = express();
 
+app.get('/', (req, res) => {
+  res.status(200).json({ status: 'ok', service: 'EstateHub API' });
+});
+
 app.use(
   cors({
     origin: [config.clientURL, 'http://localhost:5173', 'http://localhost:3000'],
