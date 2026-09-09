@@ -16,7 +16,7 @@ build/
 npm-debug.log*
 
 # uploads
-server/uploads/*
+server/uploads/
 
 # editor / os
 .DS_Store
